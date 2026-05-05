@@ -1,143 +1,166 @@
+# Expense Tracker — пошаговая инструкция по созданию приложения
+
+## 1. Структура проекта
+
+Создайте папку `expense_tracker` и внутри неё:
+- файл `main.py` — основной код приложения;
+- файл `expenses.json` — для хранения данных;
+- файл `.gitignore` — чтобы не отслеживать временные файлы;
+- файл `README.md` — описание проекта.
+
+## 2. Основной код (main.py)
+
+```python
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+from tkinter import ttk, messagebox
 import json
-import os
-import random
+from datetime import datetime
 
-class RandomQuoteGenerator:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Random Quote Generator")
-        self.history = []
+DATA_FILE = 'expenses.json'
 
-        # Предопределённые цитаты
-        self.quotes = [
-            {"text": "Знание — сила", "author": "Фрэнсис Бэкон", "topic": "Мудрость"},
-            {"text": "Быть или не быть — вот в чём вопрос", "author": "Уильям Шекспир", "topic": "Философия"},
-            {"text": "Познай самого себя", "author": "Сократ", "topic": "Самопознание"},
-            {"text": "Я мыслю, следовательно, существую", "author": "Рене Декарт", "topic": "Философия"},
-            {"text": "Через тернии к звёздам", "author": "Сенека", "topic": "Мотивация"}
-        ]
+def load_data():
+    try:
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
 
-        self.load_data()
-        self.create_widgets()
-        self.update_filters()
+def save_data(data):
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-    def create_widgets(self):
-        # Отображение цитаты
-        quote_frame = tk.LabelFrame(self.root, text="Случайная цитата")
-        quote_frame.pack(pady=10, padx=10, fill="x")
+def add_expense():
+    amount = entry_amount.get()
+    category = combo_category.get()
+    date = entry_date.get()
 
-        self.quote_text = tk.Label(quote_frame, text="", wraplength=400, justify="center", font=("Arial", 12))
-        self.quote_text.pack(pady=5)
+    if not amount.replace('.', '', 1).isdigit() or float(amount) <= 0:
+        messagebox.showerror('Ошибка', 'Сумма должна быть положительным числом')
+        return
 
-        self.author_text = tk.Label(quote_frame, text="", font=("Arial", 10, "italic"))
-        self.author_text.pack(pady=2)
+    try:
+        datetime.strptime(date, '%Y-%m-%d')
+    except ValueError:
+        messagebox.showerror('Ошибка', 'Дата должна быть в формате ГГГГ-ММ-ДД')
+        return
 
-        self.topic_text = tk.Label(quote_frame, text="", font=("Arial", 9))
-        self.topic_text.pack(pady=2)
+    expense = {'amount': float(amount), 'category': category, 'date': date}
+    data.append(expense)
+    save_data(data)
+    update_table()
+    clear_inputs()
 
-        # Кнопки управления
-        btn_frame = tk.Frame(self.root)
-        btn_frame.pack(pady=10)
+def update_table(filter_category=None, filter_date=None):
+    for i in tree.get_children():
+        tree.delete(i)
+    for expense in data:
+        if filter_category and expense['category'] != filter_category:
+            continue
+        if filter_date and expense['date'] != filter_date:
+            continue
+        tree.insert('', 'end', values=(expense['date'], expense['category'], expense['amount']))
 
-        tk.Button(btn_frame, text="Сгенерировать цитату", command=self.generate_quote, bg="lightblue").pack(side="left", padx=5)
-        tk.Button(btn_frame, text="Очистить историю", command=self.clear_history).pack(side="left", padx=5)
-        tk.Button(btn_frame, text="Сохранить историю", command=self.save_data).pack(side="left", padx=5)
+def filter_expenses():
+    category = combo_filter_category.get() if combo_filter_category.get() else None
+    date = entry_filter_date.get() if entry_filter_date.get() else None
+    update_table(category, date)
 
-        # Фильтры
-        filter_frame = tk.LabelFrame(self.root, text="Фильтры")
-        filter_frame.pack(pady=5, padx=10, fill="x")
+def sum_expenses():
+    start_date = entry_start_date.get()
+    end_date = entry_end_date.get()
 
-        tk.Label(filter_frame, text="Автор:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
-        self.author_filter = ttk.Combobox(filter_frame, state="readonly")
-        self.author_filter.grid(row=0, column=1, padx=5, pady=2)
-        self.author_filter.bind("<<ComboboxSelected>>", self.apply_filters)
+    try:
+        if start_date:
+            datetime.strptime(start_date, '%Y-%m-%d')
+        if end_date:
+            datetime.strptime(end_date, '%Y-%m-%d')
+    except ValueError:
+        messagebox.showerror('Ошибка', 'Даты должны быть в формате ГГГГ-ММ-ДД')
+        return
 
-        tk.Label(filter_frame, text="Тема:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
-        self.topic_filter = ttk.Combobox(filter_frame, state="readonly")
-        self.topic_filter.grid(row=1, column=1, padx=5, pady=2)
-        self.topic_filter.bind("<<ComboboxSelected>>", self.apply_filters)
+    total = sum(
+        e['amount'] for e in data
+        if (not start_date or e['date'] >= start_date)
+        and (not end_date or e['date'] <= end_date)
+    )
+    label_sum.config(text=f'Сумма: {total:.2f} ₽')
 
-        # История цитат
-        history_frame = tk.LabelFrame(self.root, text="История цитат")
-        history_frame.pack(pady=10, padx=10, fill="both", expand=True)
+def clear_inputs():
+    entry_amount.delete(0, tk.END)
+    combo_category.set('')
+    entry_date.delete(0, tk.END)
 
-        self.history_list = scrolledtext.ScrolledText(history_frame, height=10, width=50)
-        self.history_list.pack(padx=5, pady=5, fill="both", expand=True)
+# Загрузка данных
+data = load_data()
 
-        self.update_history_display()
+# Основное окно
+root = tk.Tk()
+root.title('Expense Tracker')
+root.geometry('800x500')
 
-    def generate_quote(self):
-        if not self.quotes:
-            messagebox.showwarning("Предупреждение", "Нет доступных цитат!")
-            return
+# Вкладки
+tab_control = ttk.Notebook(root)
+tab_main = ttk.Frame(tab_control)
+tab_filter = ttk.Frame(tab_control)
+tab_sum = ttk.Frame(tab_control)
+tab_control.add(tab_main, text='Добавить расход')
+tab_control.add(tab_filter, text='Фильтр')
+tab_control.add(tab_sum, text='Сумма за период')
+tab_control.pack(expand=1, fill='both')
 
-        author_filter = self.author_filter.get()
-        topic_filter = self.topic_filter.get()
+# Вкладка "Добавить расход"
+tk.Label(tab_main, text='Сумма:').grid(row=0, column=0, padx=5, pady=5)
+entry_amount = tk.Entry(tab_main)
+entry_amount.grid(row=0, column=1, padx=5, pady=5)
 
-        filtered_quotes = self.quotes
-        if author_filter != "Все" and author_filter:
-            filtered_quotes = [q for q in filtered_quotes if q["author"] == author_filter]
-        if topic_filter != "Все" and topic_filter:
-            filtered_quotes = [q for q in filtered_quotes if q["topic"] == topic_filter]
+tk.Label(tab_main, text='Категория:').grid(row=1, column=0, padx=5, pady=5)
+combo_category = ttk.Combobox(tab_main, values=['Еда', 'Транспорт', 'Развлечения', 'Прочее'])
+combo_category.grid(row=1, column=1, padx=5, pady=5)
 
-        if not filtered_quotes:
-            messagebox.showinfo("Информация", "По заданным фильтрам цитат не найдено")
-            return
+tk.Label(tab_main, text='Дата (ГГГГ-ММ-ДД):').grid(row=2, column=0, padx=5, pady=5)
+entry_date = tk.Entry(tab_main)
+entry_date.grid(row=2, column=1, padx=5, pady=5)
 
-        quote = random.choice(filtered_quotes)
-        self.history.append(quote)
+btn_add = tk.Button(tab_main, text='Добавить расход', command=add_expense)
+btn_add.grid(row=3, column=0, columnspan=2, pady=10)
 
-        # Отображаем цитату
-        self.quote_text.config(text=f"\"{quote['text']}\"")
-        self.author_text.config(text=f"— {quote['author']}")
-        self.topic_text.config(text=f"Тема: {quote['topic']}")
+# Таблица расходов
+tree = ttk.Treeview(tab_main, columns=('Дата', 'Категория', 'Сумма'), show='headings')
+tree.heading('Дата', text='Дата')
+tree.heading('Категория', text='Категория')
+tree.heading('Сумма', text='Сумма')
+tree.grid(row=4, column=0, columnspan=2, padx=5, pady=5, sticky='nsew')
 
-        self.update_history_display()
+# Вкладка "Фильтр"
+tk.Label(tab_filter, text='Категория:').grid(row=0, column=0, padx=5, pady=5)
+combo_filter_category = ttk.Combobox(tab_filter, values=['Все', 'Еда', 'Транспорт', 'Развлечения', 'Прочее'])
+combo_filter_category.set('Все')
+combo_filter_category.grid(row=0, column=1, padx=5, pady=5)
 
-    def update_history_display(self):
-        self.history_list.delete(1.0, tk.END)
-        for i, quote in enumerate(self.history, 1):
-            self.history_list.insert(tk.END, f"{i}. \"{quote['text']}\"\n — {quote['author']} ({quote['topic']})\n\n")
+tk.Label(tab_filter, text='Дата (ГГГГ-ММ-ДД):').grid(row=1, column=0, padx=5, pady=5)
+entry_filter_date = tk.Entry(tab_filter)
+entry_filter_date.grid(row=1, column=1, padx=5, pady=5)
 
-    def update_filters(self):
-        authors = sorted(set(q["author"] for q in self.quotes))
-        topics = sorted(set(q["topic"] for q in self.quotes))
+btn_filter = tk.Button(tab_filter, text='Применить фильтр', command=filter_expenses)
+btn_filter.grid(row=2, column=0, columnspan=2, pady=10)
 
-        self.author_filter["values"] = ["Все"] + authors
-        self.topic_filter["values"] = ["Все"] + topics
+# Вкладка "Сумма за период"
+tk.Label(tab_sum, text='С:').grid(row=0, column=0, padx=5, pady=5)
+entry_start_date = tk.Entry(tab_sum)
+entry_start_date.grid(row=0, column=1, padx=5, pady=5)
 
-        self.author_filter.set("Все")
-        self.topic_filter.set("Все")
+tk.Label(tab_sum, text='По:').grid(row=1, column=0, padx=5, pady=5)
+entry_end_date = tk.Entry(tab_sum)
+entry_end_date.grid(row=1, column=1, padx=5, pady=5)
 
-    def apply_filters(self, event=None):
-        self.generate_quote()
+btn_sum = tk.Button(tab_sum, text='Посчитать сумму', command=sum_expenses)
+btn_sum.grid(row=2, column=0, columnspan=2, pady=10)
 
-    def clear_history(self):
-        self.history = []
-        self.update_history_display()
+label_sum = tk.Label(tab_sum, text='Сумма: 0.00 ₽')
+label_sum.grid(row=3, column=0, columnspan=2, pady=10)
 
-    def save_data(self):
-        data = {
-            "quotes": self.quotes,
-            "history": self.history
-        }
-        with open("quotes_data.json", "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-        messagebox.showinfo("Успех", "Данные сохранены в quotes_data.json")
+# Заполнение таблицы при запуске
+update_table()
 
-    def load_data(self):
-        if os.path.exists("quotes_data.json"):
-            try:
-                with open("quotes_data.json", "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    self.quotes = data.get("quotes", self.quotes)
-                    self.history = data.get("history", [])
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Ошибка загрузки данных: {e}")
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = RandomQuoteGenerator(root)
-    root.mainloop()
+root.mainloop()
+```
